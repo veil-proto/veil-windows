@@ -87,6 +87,9 @@ func (t *Tunnel) Connect(configText, name string) error {
 	if err != nil {
 		return fmt.Errorf("create adapter: %w", err)
 	}
+	luid := winipcfg.LUID(tunDev.LUID())
+	log.Printf("VEIL adapter %s up (LUID %d)", tunDev.Name(), uint64(luid))
+
 	conn, err := bindUDP(cfg)
 	if err != nil {
 		tunDev.Close()
@@ -94,7 +97,7 @@ func (t *Tunnel) Connect(configText, name string) error {
 	}
 	tuneUDPSocket(conn)
 
-	cleanup, err := windev.ConfigureRouting(winipcfg.LUID(tunDev.LUID()), cfg)
+	cleanup, err := windev.ConfigureRouting(luid, cfg)
 	if err != nil {
 		conn.Close()
 		tunDev.Close()
@@ -112,6 +115,7 @@ func (t *Tunnel) Connect(configText, name string) error {
 	errChan := make(chan error, 2)
 	done := make(chan struct{})
 	eng.Run(context.Background(), errChan)
+	log.Printf("VEIL client running.")
 
 	t.eng, t.tun, t.conn, t.cleanup = eng, tunDev, conn, cleanup
 	t.name, t.iface, t.running = name, tunDev.Name(), true
