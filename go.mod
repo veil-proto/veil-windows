@@ -4,8 +4,8 @@ go 1.26
 
 require (
 	github.com/Microsoft/go-winio v0.6.2
-	github.com/veil-proto/veil v0.0.0-20260703210040-6a17f5d48421
-	golang.org/x/sys v0.28.0
+	github.com/veil-proto/veil v0.0.0-20260703212123-c8febb768ecc
+	golang.org/x/sys v0.46.0
 )
 
 require (
@@ -13,7 +13,7 @@ require (
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	gitlab.com/yawning/edwards25519-extra v0.0.0-20231005122941-2149dcafc266 // indirect
-	golang.org/x/crypto v0.31.0 // indirect
+	golang.org/x/crypto v0.53.0 // indirect
 	gopkg.in/ini.v1 v1.67.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
