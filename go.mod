@@ -4,7 +4,7 @@ go 1.26
 
 require (
 	github.com/Microsoft/go-winio v0.6.2
-	github.com/veil-proto/veil v0.0.0-20260703212123-c8febb768ecc
+	github.com/veil-proto/veil v0.0.0-20260703213942-c8c7f0fe6962
 	golang.org/x/sys v0.46.0
 )
 

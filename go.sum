@@ -11,6 +11,8 @@ github.com/stretchr/testify v1.11.1 h1:7s2iGBzp5EwR7/aIZr8ao5+dra3wiQyKjjFuvgVKu
 github.com/stretchr/testify v1.11.1/go.mod h1:wZwfW3scLgRK+23gO65QZefKpKQRnfz6sD981Nm4B6U=
 github.com/veil-proto/veil v0.0.0-20260703212123-c8febb768ecc h1:f8j2mZpnYSqb0GtCCO+OOWq639Bg2gUXLqA2LHf2XD0=
 github.com/veil-proto/veil v0.0.0-20260703212123-c8febb768ecc/go.mod h1:FaN70c7FJB6y+PmRO4LpVkbfPyx+P4he3Es2rDPgogw=
+github.com/veil-proto/veil v0.0.0-20260703213942-c8c7f0fe6962 h1:33YDSKDqsTnu+vy0IcYZ3+djLVCnPSmKDoSG2YyRkUU=
+github.com/veil-proto/veil v0.0.0-20260703213942-c8c7f0fe6962/go.mod h1:FaN70c7FJB6y+PmRO4LpVkbfPyx+P4he3Es2rDPgogw=
 github.com/yuin/goldmark v1.4.13/go.mod h1:6yULJ656Px+3vBD8DxQVa3kxgyrAnzto9xy5taEt/CY=
 gitlab.com/yawning/edwards25519-extra v0.0.0-20231005122941-2149dcafc266 h1:IvjshROr8z24+UCiOe/90cUWt3QDr8Rt+VkUjZsn+i0=
 gitlab.com/yawning/edwards25519-extra v0.0.0-20231005122941-2149dcafc266/go.mod h1:K/3SQWdJL6udzwInHk1gaYaECYxMp9dDayniPq6gCSo=
