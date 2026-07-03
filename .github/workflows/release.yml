@@ -1,0 +1,43 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version (blank = today, YY.M.D)'
+        required: false
+        default: ''
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+          check-latest: true
+      - name: Build + package
+        run: |
+          VER="${{ inputs.version }}"
+          [ -z "$VER" ] && VER=$(date +%y.%-m.%-d)
+          echo "VER=$VER" >> "$GITHUB_ENV"
+          mkdir -p dist
+          for arch in amd64 arm64; do
+            GOOS=windows GOARCH=$arch go build -trimpath \
+              -ldflags "-s -w -X main.version=$VER" \
+              -o veil-client.exe ./cmd/veil-client
+            zip -j "dist/veil-client-windows-$arch.zip" veil-client.exe "driver/$arch/veiltun.dll"
+            rm veil-client.exe
+          done
+          (cd dist && sha256sum * > SHA256SUMS)
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "v$VER" dist/* \
+            --title "VEIL Windows CLI $VER" \
+            --notes "Stable release $VER. Each zip bundles veil-client.exe + veiltun.dll."

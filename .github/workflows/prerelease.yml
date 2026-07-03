@@ -1,0 +1,41 @@
+name: Prerelease
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  prerelease:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+          check-latest: true
+      - name: Build + package
+        run: |
+          VER=$(date +%y.%-m.%-d)
+          mkdir -p dist
+          for arch in amd64 arm64; do
+            GOOS=windows GOARCH=$arch go build -trimpath \
+              -ldflags "-s -w -X main.version=$VER-dev+${GITHUB_SHA::7}" \
+              -o veil-client.exe ./cmd/veil-client
+            zip -j "dist/veil-client-windows-$arch.zip" veil-client.exe "driver/$arch/veiltun.dll"
+            rm veil-client.exe
+          done
+          (cd dist && sha256sum * > SHA256SUMS)
+      - name: Publish rolling prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VER=$(date +%y.%-m.%-d)
+          gh release delete prerelease --yes --cleanup-tag 2>/dev/null || true
+          gh release create prerelease dist/* \
+            --prerelease \
+            --title "Prerelease $VER (${GITHUB_SHA::7})" \
+            --notes "Rolling prerelease built from \`${GITHUB_SHA}\` on push to main. CalVer $VER. Each zip bundles veil-client.exe + veiltun.dll for that arch."
