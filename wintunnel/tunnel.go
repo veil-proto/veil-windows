@@ -8,16 +8,17 @@
 package wintunnel
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"net"
 	"sync"
 
-	"github.com/veil-proto/veil/config"
 	"github.com/veil-proto/veil-windows/control"
-	"github.com/veil-proto/veil/engine"
 	"github.com/veil-proto/veil-windows/windev"
 	"github.com/veil-proto/veil-windows/winipcfg"
+	"github.com/veil-proto/veil/config"
+	"github.com/veil-proto/veil/engine"
 )
 
 // Tunnel owns at most one live VEIL tunnel. All methods are safe for concurrent
@@ -34,6 +35,38 @@ type Tunnel struct {
 	tun     *windev.TunDevice
 	conn    *net.UDPConn
 	cleanup func()
+	// done is closed by stopLocked once the engine has fully stopped (after
+	// eng.Close/Wait), so the errChan-watcher goroutine below can exit
+	// instead of blocking forever: a clean stop no longer writes to errChan
+	// at all (Engine only reports genuine fatal loop errors there now), so
+	// without this the watcher would leak on every Connect/Disconnect cycle.
+	done chan struct{}
+
+	// logs is the process-lifetime log ring buffer backing the Logs control
+	// command. It is independent of running/gen/eng so captured lines span
+	// tunnel restarts rather than resetting on every Connect/Disconnect. It
+	// is lazily created on first use so a zero-value Tunnel{} (as built by
+	// cmd/veil-service) works without an explicit constructor; the caller is
+	// still expected to route the process's log output into it (e.g. via
+	// log.SetOutput(io.MultiWriter(os.Stderr, t.LogBuffer()))) for lines to
+	// actually show up.
+	logsOnce sync.Once
+	logs     *control.LogBuffer
+}
+
+// LogBuffer returns the tunnel's log ring buffer, creating it on first call.
+// The caller (cmd/veil-service) is expected to plug this into log.SetOutput
+// at startup so existing log.Printf call sites across the engine/service code
+// get captured without any call-site changes.
+func (t *Tunnel) LogBuffer() *control.LogBuffer {
+	t.logsOnce.Do(func() { t.logs = control.NewLogBuffer(0) })
+	return t.logs
+}
+
+// Logs returns every captured log line with Seq > since. Satisfies
+// control.Handler.
+func (t *Tunnel) Logs(since uint64) []control.LogLine {
+	return t.LogBuffer().Since(since)
 }
 
 // Connect brings up (or switches to) the config in configText under a display
@@ -77,24 +110,33 @@ func (t *Tunnel) Connect(configText, name string) error {
 	}
 
 	errChan := make(chan error, 2)
-	eng.Run(errChan)
+	done := make(chan struct{})
+	eng.Run(context.Background(), errChan)
 
 	t.eng, t.tun, t.conn, t.cleanup = eng, tunDev, conn, cleanup
 	t.name, t.iface, t.running = name, tunDev.Name(), true
+	t.done = done
 	t.gen++
 	gen := t.gen
 
 	// A fatal engine loop error (e.g. the TUN/UDP handle closed unexpectedly)
 	// tears this session down — but only if it's still the current one, so a
 	// quick config switch isn't undone by the old session's dying goroutine.
+	// A clean stop (stopLocked) closes done instead of writing to errChan, so
+	// this goroutine always has an exit path and never leaks.
 	go func() {
-		if err := <-errChan; err != nil {
+		select {
+		case err := <-errChan:
+			if err == nil {
+				return
+			}
 			t.mu.Lock()
 			if t.running && t.gen == gen {
 				log.Printf("tunnel %q engine error: %v", name, err)
 				t.stopLocked()
 			}
 			t.mu.Unlock()
+		case <-done:
 		}
 	}()
 
@@ -116,6 +158,14 @@ func (t *Tunnel) stopLocked() {
 	}
 	// Bump gen first so the outgoing session's error goroutine becomes a no-op.
 	t.gen++
+	// Close signals the data-plane loops to stop; closing conn/tun is what
+	// actually unblocks their in-flight blocking reads (Close alone doesn't).
+	// Wait only returns once every loop has exited, so it must come after
+	// both closes — call it before returning so a caller that immediately
+	// reconnects never races a not-yet-dead previous session.
+	if t.eng != nil {
+		t.eng.Close()
+	}
 	if t.cleanup != nil {
 		t.cleanup()
 	}
@@ -125,8 +175,14 @@ func (t *Tunnel) stopLocked() {
 	if t.tun != nil {
 		t.tun.Close()
 	}
+	if t.eng != nil {
+		t.eng.Wait()
+	}
+	if t.done != nil {
+		close(t.done)
+	}
 	name := t.name
-	t.eng, t.conn, t.tun, t.cleanup = nil, nil, nil, nil
+	t.eng, t.conn, t.tun, t.cleanup, t.done = nil, nil, nil, nil, nil
 	t.running, t.name, t.iface = false, "", ""
 	log.Printf("tunnel %q down", name)
 }

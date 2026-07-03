@@ -17,6 +17,10 @@ type Handler interface {
 	Disconnect() error
 	// Status returns the current tunnel snapshot.
 	Status() Status
+	// Logs returns every captured log line with Seq > since, oldest first.
+	// Implementations are expected to back this with a LogBuffer (or
+	// equivalent) that spans tunnel restarts, not just the current session.
+	Logs(since uint64) []LogLine
 }
 
 // Server dispatches control requests to a Handler.
@@ -64,6 +68,10 @@ func (s *Server) dispatch(req Request) Response {
 		if err := s.Handler.Disconnect(); err != nil {
 			return Response{Error: err.Error()}
 		}
+	case CmdLogs:
+		logs := s.Handler.Logs(req.Since)
+		st := s.Handler.Status()
+		return Response{OK: true, Status: &st, Logs: logs}
 	default:
 		return Response{Error: "unknown command: " + req.Cmd}
 	}

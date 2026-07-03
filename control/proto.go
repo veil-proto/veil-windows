@@ -20,6 +20,7 @@ const (
 	CmdStatus     = "status"
 	CmdConnect    = "connect"
 	CmdDisconnect = "disconnect"
+	CmdLogs       = "logs"
 )
 
 // Request is one command from a front-end to the service.
@@ -27,14 +28,28 @@ type Request struct {
 	Cmd    string `json:"cmd"`
 	Config string `json:"config,omitempty"` // config text, for connect
 	Name   string `json:"name,omitempty"`   // display name, for connect
+	Since  uint64 `json:"since,omitempty"`  // log cursor (exclusive), for logs
 }
 
 // Response is the service's reply. Status is populated on every successful reply
 // so a front-end always gets the current state back.
 type Response struct {
-	OK     bool    `json:"ok"`
-	Error  string  `json:"error,omitempty"`
-	Status *Status `json:"status,omitempty"`
+	OK     bool      `json:"ok"`
+	Error  string    `json:"error,omitempty"`
+	Status *Status   `json:"status,omitempty"`
+	Logs   []LogLine `json:"logs,omitempty"` // populated on a logs request
+}
+
+// LogLine is one captured line of service log output. Seq is a monotonic,
+// 1-based cursor (not a timestamp) assigned by the ring buffer in sequence
+// order, so a front-end can ask for "everything after Seq N" without
+// worrying about clock skew or duplicate timestamps within the same second.
+// Since=0 always means "from the beginning of the retained backlog."
+type LogLine struct {
+	Seq   uint64 `json:"seq"`
+	Time  int64  `json:"time"` // unix seconds when the line was captured
+	Level string `json:"level,omitempty"`
+	Msg   string `json:"msg"`
 }
 
 // State is the coarse tunnel state a front-end renders.

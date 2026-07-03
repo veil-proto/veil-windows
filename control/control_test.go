@@ -12,6 +12,7 @@ type fakeHandler struct {
 	state      State
 	name       string
 	lastConfig string
+	logs       *LogBuffer
 }
 
 func (h *fakeHandler) Connect(cfg, name string) error {
@@ -38,6 +39,15 @@ func (h *fakeHandler) Status() Status {
 		h.state = StateDisconnected
 	}
 	return Status{State: h.state, Name: h.name}
+}
+
+func (h *fakeHandler) Logs(since uint64) []LogLine {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.logs == nil {
+		return nil
+	}
+	return h.logs.Since(since)
 }
 
 func TestControlRoundTrip(t *testing.T) {
@@ -83,6 +93,40 @@ func TestControlRoundTrip(t *testing.T) {
 	}
 	if resp.Status.State != StateDisconnected {
 		t.Errorf("disconnect status = %v", resp.Status.State)
+	}
+}
+
+func TestControlLogsRoundTrip(t *testing.T) {
+	h := &fakeHandler{logs: NewLogBuffer(10)}
+	h.logs.Append("first line")
+	h.logs.Append("second line")
+
+	srv := &Server{Handler: h}
+	c1, c2 := net.Pipe()
+	go srv.serveConn(c1)
+	client := NewClient(c2)
+	defer client.Close()
+
+	logs, err := client.Logs(0)
+	if err != nil {
+		t.Fatalf("logs: %v", err)
+	}
+	if len(logs) != 2 {
+		t.Fatalf("logs = %+v, want 2 lines", logs)
+	}
+	if logs[0].Msg != "first line" || logs[1].Msg != "second line" {
+		t.Fatalf("unexpected log content: %+v", logs)
+	}
+
+	// A third line arrives; polling since the last-seen Seq should only
+	// return the new one.
+	h.logs.Append("third line")
+	more, err := client.Logs(logs[len(logs)-1].Seq)
+	if err != nil {
+		t.Fatalf("logs since: %v", err)
+	}
+	if len(more) != 1 || more[0].Msg != "third line" {
+		t.Fatalf("logs since = %+v, want just 'third line'", more)
 	}
 }
 

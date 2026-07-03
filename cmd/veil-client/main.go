@@ -12,6 +12,7 @@
 package main
 
 import (
+	"context"
 	"log"
 	"net"
 	"os"
@@ -23,9 +24,9 @@ import (
 
 	"github.com/veil-proto/veil-windows/winipcfg"
 
+	"github.com/veil-proto/veil-windows/windev"
 	"github.com/veil-proto/veil/config"
 	"github.com/veil-proto/veil/engine"
-	"github.com/veil-proto/veil-windows/windev"
 )
 
 func main() {
@@ -65,7 +66,7 @@ func main() {
 		log.Fatalf("Failed to build engine: %v", err)
 	}
 	errChan := make(chan error, 2)
-	eng.Run(errChan)
+	eng.Run(context.Background(), errChan)
 	log.Printf("VEIL client running.")
 
 	sigCh := make(chan os.Signal, 1)
@@ -76,6 +77,16 @@ func main() {
 	case err := <-errChan:
 		log.Printf("Fatal error: %v", err)
 	}
+
+	// Close signals the loops to stop; closing tun/conn is what actually
+	// unblocks their in-flight blocking reads (Close alone doesn't). Wait
+	// only returns once every data-plane goroutine has exited. The deferred
+	// cleanup()/conn.Close()/tunDev.Close() above still run after main
+	// returns as a safety net; closing them again here is harmless.
+	eng.Close()
+	conn.Close()
+	tunDev.Close()
+	eng.Wait()
 }
 
 // bindUDP opens the tunnel socket. With a single configured peer the socket is
