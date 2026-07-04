@@ -2,6 +2,7 @@ package control
 
 import (
 	"bufio"
+	"io"
 	"net"
 )
 
@@ -21,6 +22,15 @@ type Handler interface {
 	// Implementations are expected to back this with a LogBuffer (or
 	// equivalent) that spans tunnel restarts, not just the current session.
 	Logs(since uint64) []LogLine
+	// ParseConfig parses .conf text into a structured, JSON-friendly form for
+	// a front-end's split-tunnel editor. This package has no config-parsing
+	// logic of its own — implementations are expected to delegate to
+	// github.com/veil-proto/veil/config, keeping that logic in one place
+	// rather than duplicated in a frontend.
+	ParseConfig(configText string) (ParsedConfig, error)
+	// SerializeConfig renders a structured config back into .conf text, the
+	// inverse of ParseConfig.
+	SerializeConfig(cfg ParsedConfig) (string, error)
 }
 
 // Server dispatches control requests to a Handler.
@@ -43,13 +53,22 @@ func (s *Server) Serve(l net.Listener) error {
 // front-end may keep the connection open and poll status on it repeatedly.
 func (s *Server) serveConn(conn net.Conn) {
 	defer conn.Close()
-	r := bufio.NewReader(conn)
+	s.ServeIO(conn, conn)
+}
+
+// ServeIO runs the same request/response loop as serveConn, but over any
+// io.Reader/io.Writer pair instead of a net.Conn — in particular, a sidecar
+// process's os.Stdin/os.Stdout, so a front-end can drive this Server without
+// a named pipe or any other network listener at all. Returns once r returns
+// an error (EOF on the peer closing its end, typically).
+func (s *Server) ServeIO(r io.Reader, w io.Writer) {
+	br := bufio.NewReader(r)
 	for {
 		var req Request
-		if err := readMessage(r, &req); err != nil {
+		if err := readMessage(br, &req); err != nil {
 			return
 		}
-		if err := writeMessage(conn, s.dispatch(req)); err != nil {
+		if err := writeMessage(w, s.dispatch(req)); err != nil {
 			return
 		}
 	}
@@ -72,6 +91,21 @@ func (s *Server) dispatch(req Request) Response {
 		logs := s.Handler.Logs(req.Since)
 		st := s.Handler.Status()
 		return Response{OK: true, Status: &st, Logs: logs}
+	case CmdParseConfig:
+		pc, err := s.Handler.ParseConfig(req.Config)
+		if err != nil {
+			return Response{Error: err.Error()}
+		}
+		return Response{OK: true, ParsedConfig: &pc}
+	case CmdSerializeConfig:
+		if req.ParsedConfig == nil {
+			return Response{Error: "serializeConfig: missing parsedConfig"}
+		}
+		text, err := s.Handler.SerializeConfig(*req.ParsedConfig)
+		if err != nil {
+			return Response{Error: err.Error()}
+		}
+		return Response{OK: true, Config: text}
 	default:
 		return Response{Error: "unknown command: " + req.Cmd}
 	}

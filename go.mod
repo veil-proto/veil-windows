@@ -3,7 +3,6 @@ module github.com/veil-proto/veil-windows
 go 1.26
 
 require (
-	github.com/Microsoft/go-winio v0.6.2
 	github.com/veil-proto/veil v0.0.0-20260704103742-079296c10f5b
 	golang.org/x/sys v0.46.0
 )

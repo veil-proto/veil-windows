@@ -1,9 +1,10 @@
-// Package control is the local control channel between the VEIL tunnel service
-// (veil-service) and its front-ends (the tray GUI, a CLI). The wire protocol is
-// newline-delimited JSON request/response over a Windows named pipe; the
-// protocol and the server/client dispatch are platform-neutral (they operate on
-// a net.Conn), and only the pipe transport itself (pipe_windows.go) is
-// OS-specific.
+// Package control is the local control channel between the VEIL tunnel
+// backend (the veil-sidecar process the Tauri shell spawns) and its
+// front-end. The wire protocol is newline-delimited JSON request/response;
+// ServeIO runs it over any io.Reader/io.Writer pair (in particular a child
+// process's stdin/stdout), so the protocol and dispatch have no transport
+// dependency at all — there is deliberately no named pipe or other OS-specific
+// listener in this package.
 package control
 
 import (
@@ -12,32 +13,68 @@ import (
 	"io"
 )
 
-// PipeName is the named pipe the service listens on.
-const PipeName = `\\.\pipe\veil-service`
-
 // Command names.
 const (
-	CmdStatus     = "status"
-	CmdConnect    = "connect"
-	CmdDisconnect = "disconnect"
-	CmdLogs       = "logs"
+	CmdStatus          = "status"
+	CmdConnect         = "connect"
+	CmdDisconnect      = "disconnect"
+	CmdLogs            = "logs"
+	CmdParseConfig     = "parseConfig"     // config text -> structured ParsedConfig, for the split-tunnel editor
+	CmdSerializeConfig = "serializeConfig" // structured ParsedConfig -> config text, inverse of parseConfig
 )
 
-// Request is one command from a front-end to the service.
+// Request is one command from a front-end to the backend.
 type Request struct {
-	Cmd    string `json:"cmd"`
-	Config string `json:"config,omitempty"` // config text, for connect
-	Name   string `json:"name,omitempty"`   // display name, for connect
-	Since  uint64 `json:"since,omitempty"`  // log cursor (exclusive), for logs
+	Cmd          string        `json:"cmd"`
+	Config       string        `json:"config,omitempty"`       // config text, for connect/parseConfig
+	Name         string        `json:"name,omitempty"`         // display name, for connect
+	Since        uint64        `json:"since,omitempty"`        // log cursor (exclusive), for logs
+	ParsedConfig *ParsedConfig `json:"parsedConfig,omitempty"` // for serializeConfig
 }
 
-// Response is the service's reply. Status is populated on every successful reply
-// so a front-end always gets the current state back.
+// Response is the backend's reply. Status is populated on every successful
+// reply so a front-end always gets the current state back.
 type Response struct {
-	OK     bool      `json:"ok"`
-	Error  string    `json:"error,omitempty"`
-	Status *Status   `json:"status,omitempty"`
-	Logs   []LogLine `json:"logs,omitempty"` // populated on a logs request
+	OK           bool          `json:"ok"`
+	Error        string        `json:"error,omitempty"`
+	Status       *Status       `json:"status,omitempty"`
+	Logs         []LogLine     `json:"logs,omitempty"`         // populated on a logs request
+	ParsedConfig *ParsedConfig `json:"parsedConfig,omitempty"` // populated on a parseConfig request
+	Config       string        `json:"config,omitempty"`       // populated on a serializeConfig request
+}
+
+// ParsedConfig is a JSON-friendly view of github.com/veil-proto/veil/config's
+// Config, for the structured split-tunnel editor. Byte fields (keys, secrets)
+// are hex strings, matching how the .conf format itself represents them, so
+// round-tripping through ParseConfig/SerializeConfig never has to touch raw
+// key material as anything but the same hex text already on disk.
+type ParsedConfig struct {
+	Interface ParsedInterface `json:"interface"`
+	Peers     []ParsedPeer    `json:"peers"`
+}
+
+// ParsedInterface mirrors config.InterfaceConfig.
+type ParsedInterface struct {
+	PrivateKey             string `json:"privateKey"` // hex
+	Address                string `json:"address,omitempty"`
+	BindAddress            string `json:"bindAddress,omitempty"`
+	ListenPort             int    `json:"listenPort,omitempty"`
+	NID                    string `json:"nid"`                 // hex
+	NetSecret              string `json:"netSecret,omitempty"` // hex, empty when NetSecretInsecure
+	NetSecretInsecure      bool   `json:"netSecretInsecure,omitempty"`
+	AllowInsecureNetSecret bool   `json:"allowInsecureNetSecret,omitempty"`
+	Padding                string `json:"padding,omitempty"`
+	DNS                    string `json:"dns,omitempty"`
+	FwMark                 int    `json:"fwMark,omitempty"`
+}
+
+// ParsedPeer mirrors config.PeerConfig.
+type ParsedPeer struct {
+	PublicKey           string   `json:"publicKey"` // hex
+	AllowedIPs          []string `json:"allowedIPs,omitempty"`
+	Endpoint            string   `json:"endpoint,omitempty"`
+	PersistentKeepalive int      `json:"persistentKeepalive,omitempty"`
+	PresharedKey        string   `json:"presharedKey,omitempty"` // hex
 }
 
 // LogLine is one captured line of service log output. Seq is a monotonic,
